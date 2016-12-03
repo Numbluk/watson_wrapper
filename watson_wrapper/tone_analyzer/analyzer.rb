@@ -1,26 +1,12 @@
-require 'singleton'
-require 'net/http'
-require 'uri'
-require 'json'
 require 'pry'
 
 module WatsonWrapper
   module ToneAnalyzer
-    def self.method_missing(mthd, *args, &block)
-      Analyzer.public_send(mthd, *args, &block)
-    end
-
-    class InvalidContentTypeError < StandardError; end
-    class InvalidTonesError < StandardError; end
-
     class Analyzer
       include Singleton
 
-      attr_writer :user, :password, :content_type, :sentences, :allow_data_collection
-
-      def tones=(*tones)
-        @tones = tones
-      end
+      attr_writer :user, :password, :content_type, :sentence_analysis,
+        :allow_data_collection
 
       def self.configure(&block)
         self.instance.configure &block
@@ -29,11 +15,17 @@ module WatsonWrapper
       def configure
         set_data
         yield self
+        validate_parameters
         self
+      end
+
+      def tones=(*tones)
+        @tones = tones
       end
 
       def get(text)
         @text = text 
+        valid_text_length?
         uri = URI.parse(build_get_uri)
 
         req = Net::HTTP::Get.new uri
@@ -49,23 +41,63 @@ module WatsonWrapper
         JSON.parse(res.body)
       end
 
-      def post(text)
-        @text = text
+      def post(payload)
+        @text = payload 
+        valid_text_length?
         uri = URI.parse(base_uri)
 
         req = Net::HTTP::Post.new(uri, 'Content-Type': @content_type)
-        req.body = @text
+        if @allow_data_collection
+          req.add_field('X-Watson-Learning-Opt-Out', '1')
+        end
+        req.body = text_as_payload
         req.basic_auth @user, @password
 
         res = Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
           http.request(req)
         end
 
-
         JSON.parse(res.body)
       end
 
       private
+
+      def validate_parameters
+        valid_tones?
+        valid_content_type?
+        valid_sentence_analysis_value?
+        valid_allow_data_collection_value?
+      end
+
+      def valid_tones?
+        if !@tones.empty?
+          @tones.each do |tone|
+            raise InvalidTonesError.new tone unless @valid_tones.include? tone
+          end
+        end
+      end
+
+      def valid_content_type?
+        if !@valid_content_types.include?(@content_type)
+          raise Error:InvalidContentTypeError.new(@content_type)
+        end
+      end
+
+      def valid_sentence_analysis_value?
+        if ![true, false, 'true', 'false'].include? @sentence_analysis
+          raise InvalidSentenceAnalysisTypeError.new @sentence_analysis
+        end
+      end
+
+      def valid_text_length?
+        raise Errors::InvalidTextLengthError.new if @text.split(' ').size < 3
+      end
+
+      def valid_allow_data_collection_value?
+        if ![true, false, 'true', 'false'].include? @allow_data_collection
+          raise InvalidSentenceAnalysisTypeError.new @allow_data_collection
+        end
+      end
 
       def set_data
         @version = 'v3'
@@ -73,8 +105,8 @@ module WatsonWrapper
 
         @endpoint = "https://gateway.watsonplatform.net/tone-analyzer/api/#{@version}/tone"
 
-        # TODO: Raise an exception if no valid content type
         @valid_content_types = ['text/plain', 'text/html', 'application/json']
+        @content_type = 'text/plain'
 
         # Set a @tones_param to filter results on a specific tone, otherwise
         # results will contain all tones
@@ -83,9 +115,7 @@ module WatsonWrapper
 
         # Set to true to remove sentence-level analysis, otherwise results will
         # contain sentence-level analysis
-        # TODO: Should I raise an exception if @sentences' string form not 'true'
-        # or 'false'?
-        @sentences = false
+        @sentence_analysis = false
 
         # Set to true if you do not want Watson to collect your data to improve its
         # service.
@@ -97,7 +127,7 @@ module WatsonWrapper
       end
 
       def build_get_uri
-        base_uri + '&' + "text=#{text}"
+        base_uri + '&' + "text=#{@text}"
       end
 
       def base_uri
@@ -108,31 +138,16 @@ module WatsonWrapper
       end
 
       def sentences
-        @sentences.to_s
+        @sentence_analysis.to_s
       end
 
       def tones
         @tones.join(',')
       end
 
-      def text
-        @text
+      def text_as_payload
+        @content_type == 'application/json' ? {text: @text}.to_json : @text
       end
     end
   end
 end
-
-# {
-#   "url": "https://gateway.watsonplatform.net/tone-analyzer/api",
-#   "password": "FdUoTWvpaFsd",
-#   "username": "8ddf8228-bfa7-4ff0-b135-fcc4517bf776"
-# }
-
-analyzer = WatsonWrapper::ToneAnalyzer.configure do |config|
-  config.user = '8ddf8228-bfa7-4ff0-b135-fcc4517bf776'
-  config.password = 'FdUoTWvpaFsd'
-  config.content_type = 'text/plain'
-  config.tones = 'emotion'
-end
-
-puts analyzer.get("How could you let this happen!")
