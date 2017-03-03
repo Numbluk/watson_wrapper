@@ -16,13 +16,13 @@ end
 
 # {
 #   "url": "https://gateway.watsonplatform.net/tone-analyzer/api",
-#   "password": "FdUoTWvpaFsd",
-#   "username": "8ddf8228-bfa7-4ff0-b135-fcc4517bf776"
+#   "password": 
+#   "username": 
 # }
 
 analyzer = WatsonWrapper::ToneAnalyzer.configure do |config|
-  config.user = '8ddf8228-bfa7-4ff0-b135-fcc4517bf776'
-  config.password = 'FdUoTWvpaFsd'
+  config.user = # need to set
+  config.password = # need to set
   config.content_type = 'application/json'
 end
 
